@@ -73,7 +73,7 @@ shared ({ caller = creator }) actor class Likes () {
             case (?some) some;
             case _ null;
         };
-        let update = List.filter<Like>(existing, func (c, i, u) { c != canister and i != index and u != user });
+        let update = List.filter<Like>(existing, func (c, i, u) { c != canister or i != index or u != user });
         likes.put(principal, update);
     };
 
