@@ -1,14 +1,16 @@
-import AviatePrincipal "mo:principal/Principal";
 import Blob "mo:base/Blob";
 import Debug "mo:base/Debug";
 import Ext "mo:ext/Ext";
 import HashMap "mo:base/HashMap";
 import Iter "mo:base/Iter";
 import List "mo:base/List";
+import Nat8 "mo:base/Nat8";
 import Nat32 "mo:base/Nat32";
 import Option "mo:base/Option";
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
+
+import AviatePrincipal "mo:principal/Principal";
 import TokenIdentifier "mo:encoding/Base32";
 
 shared ({ caller = creator }) actor class Likes () {
@@ -77,14 +79,19 @@ shared ({ caller = creator }) actor class Likes () {
         likes.put(principal, update);
     };
 
-    private func combinePrincipals (
-        a : Principal,
-        b : Principal,
+    /// Provides reconstructable map keys combining caller's principal and a token identifier.
+    private func tokenCallerHash (
+        index   : Nat32,
+        canister: Principal,
+        caller  : Principal,
     ) : Principal {
         var arr : List.List<Nat8> = null;
         var i = 0;
-        let bytesA = Blob.toArray(Principal.toBlob(a));
-        let bytesB = Blob.toArray(Principal.toBlob(b));
+        
+        let bytesA = Blob.toArray(Principal.toBlob(canister));
+        let bytesB = Blob.toArray(Principal.toBlob(caller));
+        let bytesC = nat32ToVecNat8(index);
+
         let size = if (bytesA.size() < bytesB.size()) {
             bytesA.size();
         } else {
@@ -94,23 +101,30 @@ shared ({ caller = creator }) actor class Likes () {
         while (i < size and i <= 16) {
             arr := List.push(bytesA[i], arr);
             arr := List.push(bytesB[i], arr);
+            if (i < bytesC.size() - 1) {
+                arr := List.push(bytesC[i], arr);
+            };
             i += 1;
         };
 
-        Debug.print(
-            Principal.toText(a) # " "
-            # Principal.toText(b) # " "
-            # Principal.toText(AviatePrincipal.fromBlob(Blob.fromArray(List.toArray(arr))))
-        );
-
         AviatePrincipal.fromBlob(Blob.fromArray(List.toArray(arr)));
+    };
+
+    private func nat32ToVecNat8(
+        x : Nat32
+    ) : [Nat8] {
+        let b1 = Nat8.fromNat(Nat32.toNat((x >> 24) & 0xff));
+        let b2 = Nat8.fromNat(Nat32.toNat((x >> 16) & 0xff));
+        let b3 = Nat8.fromNat(Nat32.toNat((x >> 8) & 0xff));
+        let b4 = Nat8.fromNat(Nat32.toNat(x & 0xff));
+        return [b4, b3, b2, b1];
     };
 
     public shared ({ caller }) func like (
         canister    : Principal,
         index       : TokenIndex,
     ) : async () {
-        put(combinePrincipals(caller, canister), canister, index, caller);
+        put(tokenCallerHash(Nat32.fromNat(index), canister, caller), canister, index, caller);
         put(caller, canister, index, caller);
         put(canister, canister, index, caller);
         put(Principal.fromText(Ext.TokenIdentifier.encode(canister, Nat32.fromNat(index))), canister, index, caller);
@@ -120,7 +134,7 @@ shared ({ caller = creator }) actor class Likes () {
         canister    : Principal,
         index       : TokenIndex,
     ) : async () {
-        pop(combinePrincipals(caller, canister), canister, index, caller);
+        pop(tokenCallerHash(Nat32.fromNat(index), canister, caller), canister, index, caller);
         pop(caller, canister, index, caller);
         pop(canister, canister, index, caller);
         pop(Principal.fromText(Ext.TokenIdentifier.encode(canister, Nat32.fromNat(index))), canister, index, caller);
@@ -132,7 +146,7 @@ shared ({ caller = creator }) actor class Likes () {
         switch (canister) {
             case (?c) {
                 do ? {
-                    List.toArray<Like>(likes.get(combinePrincipals(caller, c))!);
+                    List.toArray<Like>(likes.get(c)!);
                 };
             };
             case _ {
